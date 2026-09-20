@@ -7,6 +7,14 @@ import {
   MOCK_SIMULADOS,
   mockDashboard,
   mockMateriasPerformance,
+  mockRelatorio,
+  mockWeek,
+  mockProfile,
+  mockNow,
+  mockCoverage,
+  mockReviews,
+  MOCK_METODOS,
+  MOCK_ORIENTACOES,
 } from "./mocks";
 import type {
     AssuntoResponse,
@@ -24,16 +32,149 @@ import type {
     SimuladoSemanalResponse,
 } from "./types";
 
-export const USE_MOCKS = false;
+interface MateriaCreateInput {
+    nome: string;
+    peso?: number;
+    ordem?: number;
+    cor?: string;
+}
+
+interface AssuntoCreateInput {
+    materia_id: string;
+    nome: string;
+    ordem?: number;
+}
+
+export const USE_MOCKS = true;
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 
 // Latência simulada para que loading states apareçam.
-function mockResponse<T>(data: T, ms = 250): Promise<T> {
+function mockResponse<T>(data: T, ms = 200): Promise<T> {
     return new Promise(resolve => setTimeout(() => resolve(data), ms));
 }
 
+function handleMockRequest<T>(path: string, options?: RequestInit): Promise<T> {
+    const method = options?.method?.toUpperCase() || "GET";
+    const url = new URL(path, "http://localhost");
+    const pathname = url.pathname;
+    const searchParams = url.searchParams;
+
+    if (pathname.includes("/relatorio/mensal")) {
+        const mes = Number(searchParams.get("mes")) || 9;
+        const ano = Number(searchParams.get("ano")) || 2026;
+        return mockResponse(mockRelatorio(mes, ano) as unknown as T);
+    }
+
+    if (pathname.includes("/performance/dashboard")) {
+        const pParam = searchParams.get("periodo");
+        const periodo: Periodo = (pParam === "semana" || pParam === "mes" || pParam === "ano" || pParam === "total") ? pParam : "mes";
+        const materiaId = searchParams.get("materia_id") || undefined;
+        return mockResponse(mockDashboard(periodo, materiaId) as unknown as T);
+    }
+
+    if (pathname.includes("/estudos/materias-performance")) {
+        const pParam = searchParams.get("periodo");
+        const periodo: Periodo = (pParam === "semana" || pParam === "mes" || pParam === "ano" || pParam === "total") ? pParam : "mes";
+        return mockResponse(mockMateriasPerformance(periodo) as unknown as T);
+    }
+
+    if (pathname.includes("/estudos/series")) {
+        return mockResponse({ blocos: MOCK_BLOCOS, simulados: MOCK_SIMULADOS } as unknown as T);
+    }
+
+    if (pathname.includes("/metas/semana/questoes") || pathname.includes("/metas/semana/ajuste")) {
+        return mockResponse({ success: true, mensagem: "Meta atualizada com sucesso." } as unknown as T);
+    }
+
+    if (pathname.includes("/metas/semana")) {
+        return mockResponse(mockWeek() as unknown as T);
+    }
+
+    if (pathname.includes("/metas/configuracao")) {
+        if (method === "PUT" || method === "POST") {
+            return mockResponse({ mensagem: "Configurações de estudo salvas com sucesso." } as unknown as T);
+        }
+        return mockResponse(mockProfile() as unknown as T);
+    }
+
+    if (pathname.includes("/metas/metodos")) {
+        return mockResponse(MOCK_METODOS as unknown as T);
+    }
+
+    if (pathname.includes("/metas/orientacoes")) {
+        return mockResponse(MOCK_ORIENTACOES as unknown as T);
+    }
+
+    if (pathname.includes("/estudos/agora")) {
+        return mockResponse(mockNow() as unknown as T);
+    }
+
+    if (pathname.includes("/estudos/cobertura")) {
+        const materiaId = searchParams.get("materia_id") || undefined;
+        return mockResponse(mockCoverage(materiaId) as unknown as T);
+    }
+
+    if (pathname.includes("/estudos/revisoes")) {
+        const materiaId = searchParams.get("materia_id") || undefined;
+        return mockResponse(mockReviews(materiaId) as unknown as T);
+    }
+
+    if (pathname.includes("/estudos/ciclo") || pathname.includes("/estudos/concluir")) {
+        return mockResponse({ success: true, mensagem: "Ação concluída com sucesso." } as unknown as T);
+    }
+
+    if (pathname.includes("/estudos/acoes")) {
+        return mockResponse({ id: `acao_${Date.now()}`, mensagem: "Ação registrada." } as unknown as T);
+    }
+
+    if (pathname.includes("/configuracoes/materias") || pathname.includes("/performance/materias")) {
+        if (method === "POST" && options?.body) {
+            try {
+                const body = JSON.parse(String(options.body)) as MateriaCreateInput;
+                const newMateria: MateriaResponse = {
+                    id: `m_${Date.now()}`,
+                    nome: body.nome,
+                };
+                MOCK_MATERIAS.push(newMateria);
+                return mockResponse(newMateria as unknown as T);
+            } catch {
+                // ignore
+            }
+        }
+        return mockResponse(MOCK_MATERIAS as unknown as T);
+    }
+
+    if (pathname.includes("/configuracoes/assuntos") || pathname.includes("/performance/assuntos")) {
+        if (method === "POST" && options?.body) {
+            try {
+                const body = JSON.parse(String(options.body)) as AssuntoCreateInput;
+                const newAssunto: AssuntoResponse = {
+                    id: `a_${Date.now()}`,
+                    materia_id: body.materia_id,
+                    nome: body.nome,
+                };
+                MOCK_ASSUNTOS.push(newAssunto);
+                return mockResponse(newAssunto as unknown as T);
+            } catch {
+                // ignore
+            }
+        }
+        const materiaId = searchParams.get("materia_id");
+        return mockResponse((materiaId ? MOCK_ASSUNTOS.filter(a => a.materia_id === materiaId) : MOCK_ASSUNTOS) as unknown as T);
+    }
+
+    if (pathname.includes("/performance/analytics")) {
+        return mockResponse({ status: "ok", dados: [] } as unknown as T);
+    }
+
+    return mockResponse({ success: true } as unknown as T);
+}
+
 export async function request<T>(path: string, options?: RequestInit): Promise<T> {
+    if (USE_MOCKS) {
+        return handleMockRequest<T>(path, options);
+    }
     const res = await fetch(`${API_BASE}${path}`, {
         headers: { "Content-Type": "application/json" },
         ...options,
